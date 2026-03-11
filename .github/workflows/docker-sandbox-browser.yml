@@ -1,0 +1,84 @@
+name: Build and push sandbox browser image
+
+on:
+  repository_dispatch:
+    types: [openclaw-release]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag from openclaw/openclaw"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          TAG="${{ github.event.client_payload.tag || github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/openclaw/openclaw/tags?per_page=1" | \
+              jq -r '.[0].name')"
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Missing tag. Provide github.event.client_payload.tag, workflow_dispatch input 'tag', or ensure the upstream API is reachable."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out upstream repository
+        uses: actions/checkout@v4
+        with:
+          repository: openclaw/openclaw
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image tag already exists
+        id: image
+        shell: bash
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}-sandbox-browser:${{ steps.release.outputs.tag }}"
+          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        if: steps.image.outputs.exists != 'true'
+        with:
+          images: ghcr.io/${{ github.repository }}-sandbox-browser
+          tags: |
+            type=raw,value=${{ steps.release.outputs.tag }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        if: steps.image.outputs.exists != 'true'
+        with:
+          context: .
+          file: Dockerfile.sandbox-browser
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
