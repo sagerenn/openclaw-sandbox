@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to publish (default: latest)"
+        description: "Upstream release tag to publish (default: latest upstream tag)"
         required: false
-        default: latest
+        type: string
 
 permissions:
   contents: read
@@ -16,20 +16,35 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve upstream tag
+        id: upstream
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/openclaw/openclaw/tags?per_page=1" | \
+              jq -r '.[0].name')"
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Missing tag. Provide a workflow_dispatch input or ensure the upstream API is reachable."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Check out upstream repository
         uses: actions/checkout@v4
         with:
           repository: openclaw/openclaw
-          ref: main
+          ref: refs/tags/${{ steps.upstream.outputs.tag }}
           fetch-depth: 1
 
-      - name: Resolve image tags
+      - name: Resolve upstream commit sha
         id: vars
         shell: bash
         run: |
-          TAG="${{ github.event.inputs.tag || 'latest' }}"
           SHA="$(git rev-parse --short HEAD)"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -71,7 +86,7 @@ jobs:
           RUN openclaw plugins install @wecom/wecom-openclaw-plugin
           USER root
           EOF
-          IMAGE="ghcr.io/${{ github.repository }}-openclaw:${{ steps.vars.outputs.tag }}"
+          IMAGE="ghcr.io/${{ github.repository }}-openclaw:${{ steps.upstream.outputs.tag }}"
           docker buildx build \
             -f Dockerfile.openclaw-extras \
             --build-arg BASE_IMAGE=ghcr.io/${{ github.repository }}-openclaw-base:sha-${{ steps.vars.outputs.sha }} \
