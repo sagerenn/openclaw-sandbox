@@ -69,6 +69,7 @@ jobs:
           USER node
           WORKDIR /app
           RUN openclaw plugins install @wecom/wecom-openclaw-plugin
+          USER root
           EOF
           IMAGE="ghcr.io/${{ github.repository }}-openclaw:${{ steps.vars.outputs.tag }}"
           docker buildx build \
