@@ -81,7 +81,6 @@ jobs:
           FROM ${BASE_IMAGE}
           USER root
           RUN npm i -g opencode-ai@latest
-          USER node
           WORKDIR /app
           RUN openclaw plugins install @wecom/wecom-openclaw-plugin
           USER root
