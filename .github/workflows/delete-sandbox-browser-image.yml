@@ -1,0 +1,25 @@
+name: Delete sandbox browser image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to delete from GHCR"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete GHCR image tag
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}-sandbox-browser
+          package-type: container
+          version-names: ${{ inputs.tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
